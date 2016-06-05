@@ -1,0 +1,10 @@
+[package]
+authors = ["Robin Kruppe <robin.kruppe@gmail.com>"]
+name = "glory"
+version = "0.1.0"
+
+[dependencies]
+bmp = "0.1.4"
+cgmath = "0.9.1"
+obj-rs = "0.4.15"
+scoped_threadpool = "0.1.7"
