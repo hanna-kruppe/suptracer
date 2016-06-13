@@ -6,9 +6,12 @@ extern crate stopwatch;
 extern crate obj;
 extern crate watertight_triangle;
 
-use std::fmt;
-use std::fs::File;
+mod bb;
+mod bvh;
+
+use bb::Aabb;
 use std::f32;
+use std::fs::File;
 use std::io::BufReader;
 use std::time::Duration;
 use std::path::Path;
@@ -27,8 +30,9 @@ pub struct Ray {
 }
 
 struct Mesh {
-    pub tris: Vec<Tri>,
-    pub bb: Aabb,
+    tris: Vec<Tri>,
+    bb: Aabb,
+    accel: bvh::Node,
 }
 
 
@@ -51,31 +55,12 @@ impl<'a> Hit<'a> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct Aabb {
-    pub min: Vector3<f32>,
-    pub max: Vector3<f32>,
-}
-
-impl fmt::Display for Aabb {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "[{}, {}, {}]..[{}, {}, {}]",
-               self.min.x,
-               self.min.y,
-               self.min.z,
-               self.max.x,
-               self.max.y,
-               self.max.z)
-    }
-}
-
 struct Scene {
     pub meshes: Vec<Mesh>,
 }
 
-static WIDTH: u32 = 500;
-static HEIGHT: u32 = 500;
+static WIDTH: u32 = 1000;
+static HEIGHT: u32 = 1000;
 
 static BACKGROUND: Color = Color(0, 0, 255);
 static WHITE: Color = Color(255, 255, 255);
@@ -93,14 +78,21 @@ impl Color {
 impl Mesh {
     fn new(mut tris: Vec<Tri>) -> Self {
         normalize(&mut tris);
-        let bb = compute_aabb(&tris);
+        let bb = Aabb::for_tris(&tris);
+        let bvh = bvh::construct(&mut tris, bb);
         Mesh {
             tris: tris,
             bb: bb,
+            accel: bvh,
         }
     }
+
     fn intersect<'a>(&'a self, r: &Ray) -> Option<Hit<'a>> {
-        intersect(&self.tris, r)
+        if let Some((t0, t1)) = self.bb.intersect(r, 0.0, f32::INFINITY) {
+            bvh::traverse(&self.tris, &self.accel, r, t0, t1)
+        } else {
+            None
+        }
     }
 }
 
@@ -144,27 +136,8 @@ fn trace(r: Ray, scene: &Scene) -> Color {
     }
 }
 
-pub fn compute_aabb(tris: &[Tri]) -> Aabb {
-    let mut min = vec3(f32::INFINITY, f32::INFINITY, f32::INFINITY);
-    let mut max = -min;
-    for tri in tris {
-        for v in &[tri.a, tri.b, tri.c] {
-            min.x = min.x.min(v.x);
-            min.y = min.y.min(v.y);
-            min.z = min.z.min(v.z);
-            max.x = max.x.max(v.x);
-            max.y = max.y.max(v.y);
-            max.z = max.z.max(v.z);
-        }
-    }
-    Aabb {
-        min: min,
-        max: max,
-    }
-}
-
 fn normalize(tris: &mut [Tri]) {
-    let Aabb { min, max } = compute_aabb(tris);
+    let Aabb { min, max } = Aabb::for_tris(tris);
     let center = (min + max) / 2.0;
     // This heuristically moves the model such that it's probably within view.
     let displace = center + vec3(0.0, 0.0, 1.5 * (min.z - max.z).abs());
@@ -199,6 +172,7 @@ fn load_scene() -> Scene {
 fn main() {
     let sw = Stopwatch::start_new();
     let scene = load_scene();
+    println!("Loaded scene in {}", pretty_duration(sw.elapsed()));
     let mut img = bmp::Image::new(WIDTH, HEIGHT);
     let mut pool = Pool::new(4);
     let mut ray_count = 0;
