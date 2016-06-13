@@ -4,9 +4,11 @@ version = "0.1.0"
 dependencies = [
  "bmp 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "cgmath 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "flame 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "conv 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "obj-rs 0.4.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "scoped_threadpool 0.1.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "stopwatch 0.0.7 (registry+https://github.com/rust-lang/crates.io-index)",
+ "watertight-triangle 0.1.0",
 ]
 
 [[package]]
@@ -33,24 +35,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "clock_ticks"
-version = "0.1.0"
+name = "conv"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "libc 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "custom_derive 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
-name = "flame"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "clock_ticks 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "libc"
-version = "0.1.12"
+name = "custom_derive"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -152,7 +146,22 @@ version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "stopwatch"
+version = "0.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "num 0.1.32 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "vec_map"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "watertight-triangle"
+version = "0.1.0"
+dependencies = [
+ "cgmath 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
