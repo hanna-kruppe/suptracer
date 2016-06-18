@@ -1,6 +1,6 @@
 [package]
 authors = ["Robin Kruppe <robin.kruppe@gmail.com>"]
-name = "glory"
+name = "suptracer"
 version = "0.1.0"
 
 [dependencies]

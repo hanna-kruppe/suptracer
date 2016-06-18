@@ -3,18 +3,18 @@ use cgmath::{Vector3, vec3};
 use std::fmt;
 use std::f32;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Aabb {
     pub min: Vector3<f32>,
     pub max: Vector3<f32>,
 }
 
 impl Aabb {
-    pub fn for_tris(tris: &[Tri]) -> Aabb {
+    pub fn new(tris: &[Tri]) -> Aabb {
         let mut min = vec3(f32::INFINITY, f32::INFINITY, f32::INFINITY);
         let mut max = -min;
-        // FIXME f32::min calls fmin, which is robust against NaN but relatively slow,
-        // especially since it can't be vectorized
+        // FIXME f32::min calls fmin, which is robust against NaN but may be
+        // unnecessarily slow since it can't be mapped to SSE
         for tri in tris {
             for v in &[tri.a, tri.b, tri.c] {
                 min.x = min.x.min(v.x);
@@ -32,18 +32,18 @@ impl Aabb {
     }
 
     pub fn with_min(&self, axis: usize, min: f32) -> Self {
-        let mut new = *self;
+        let mut new = self.clone();
         new.min[axis] = min;
         new
     }
 
     pub fn with_max(&self, axis: usize, max: f32) -> Self {
-        let mut new = *self;
+        let mut new = self.clone();
         new.max[axis] = max;
         new
     }
 
-    pub fn intersect(&self, r: &Ray, t0: f32, t1: f32) -> Option<(f32, f32)> {
+    pub fn intersect(&self, r: &Ray, t1: f32) -> Option<f32> {
         // Williams, Amy, et al. "An efficient and robust ray-box intersection algorithm."
         // ACM SIGGRAPH 2005 Courses. ACM, 2005.
         let p = [self.min, self.max];
@@ -65,8 +65,8 @@ impl Aabb {
         }
         tmin = tmin.min(tzmin);
         tmax = tmax.max(tzmax);
-        if tmin < t1 && tmax > t0 {
-            Some((tmin, tmax))
+        if tmin < t1 && tmax > 0.0 {
+            Some(tmax)
         } else {
             None
         }

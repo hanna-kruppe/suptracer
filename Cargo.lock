@@ -1,5 +1,5 @@
 [root]
-name = "glory"
+name = "suptracer"
 version = "0.1.0"
 dependencies = [
  "bmp 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",

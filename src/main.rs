@@ -1,6 +1,7 @@
 extern crate bmp;
 extern crate cgmath;
 extern crate conv;
+// extern crate rayon;
 extern crate scoped_threadpool;
 extern crate stopwatch;
 extern crate obj;
@@ -10,6 +11,7 @@ mod bb;
 mod bvh;
 
 use bb::Aabb;
+use bvh::Bvh;
 use std::f32;
 use std::fs::File;
 use std::io::BufReader;
@@ -32,9 +34,8 @@ pub struct Ray {
 struct Mesh {
     tris: Vec<Tri>,
     bb: Aabb,
-    accel: bvh::Node,
+    accel: Bvh,
 }
-
 
 #[derive(Copy, Clone, Debug)]
 pub struct Tri {
@@ -59,8 +60,8 @@ struct Scene {
     pub meshes: Vec<Mesh>,
 }
 
-static WIDTH: u32 = 1000;
-static HEIGHT: u32 = 1000;
+static WIDTH: u32 = 500;
+static HEIGHT: u32 = 500;
 
 static BACKGROUND: Color = Color(0, 0, 255);
 static WHITE: Color = Color(255, 255, 255);
@@ -78,8 +79,8 @@ impl Color {
 impl Mesh {
     fn new(mut tris: Vec<Tri>) -> Self {
         normalize(&mut tris);
-        let bb = Aabb::for_tris(&tris);
-        let bvh = bvh::construct(&mut tris, bb);
+        let bb = Aabb::new(&tris);
+        let bvh = bvh::construct(&mut tris, bb.clone());
         Mesh {
             tris: tris,
             bb: bb,
@@ -88,8 +89,8 @@ impl Mesh {
     }
 
     fn intersect<'a>(&'a self, r: &Ray) -> Option<Hit<'a>> {
-        if let Some((t0, t1)) = self.bb.intersect(r, 0.0, f32::INFINITY) {
-            bvh::traverse(&self.tris, &self.accel, r, t0, t1)
+        if let Some(tmax) = self.bb.intersect(r, f32::INFINITY) {
+            bvh::traverse(&self.tris, &self.accel, r, tmax)
         } else {
             None
         }
@@ -137,7 +138,7 @@ fn trace(r: Ray, scene: &Scene) -> Color {
 }
 
 fn normalize(tris: &mut [Tri]) {
-    let Aabb { min, max } = Aabb::for_tris(tris);
+    let Aabb { min, max } = Aabb::new(tris);
     let center = (min + max) / 2.0;
     // This heuristically moves the model such that it's probably within view.
     let displace = center + vec3(0.0, 0.0, 1.5 * (min.z - max.z).abs());
@@ -169,10 +170,7 @@ fn load_scene() -> Scene {
     Scene { meshes: vec![read_obj("bunny.obj")] }
 }
 
-fn main() {
-    let sw = Stopwatch::start_new();
-    let scene = load_scene();
-    println!("Loaded scene in {}", pretty_duration(sw.elapsed()));
+fn render(scene: Scene) -> u32 {
     let mut img = bmp::Image::new(WIDTH, HEIGHT);
     let mut pool = Pool::new(4);
     let mut ray_count = 0;
@@ -191,12 +189,18 @@ fn main() {
         }
     });
     img.save("bunny.bmp").unwrap();
-    println!("");
-    let elapsed = sw.elapsed();
-    println!("Traced {:.2}M rays in {} ({} per ray)",
-             ray_count as f64 / 1e6,
-             pretty_duration(elapsed),
-             pretty_duration(elapsed / ray_count));
+    ray_count
+}
+
+fn main() {
+    let (scene, _) = timeit("loaded scene", load_scene);
+    let (ray_count, t) = timeit("traced rays", move || render(scene));
+    let seconds = t.as_secs() as f64 + (t.subsec_nanos() as f64 / 1e9);
+    let mrays = ray_count as f64 / 1e6;
+    println!("{:.2}M rays @ {:.3} Mray/s ({} per ray)",
+             mrays,
+             mrays / seconds,
+             pretty_duration(t / ray_count));
 }
 
 fn pretty_duration(d: Duration) -> String {
@@ -212,4 +216,14 @@ fn pretty_duration(d: Duration) -> String {
     } else {
         return format!("{}ns", ns);
     }
+}
+
+fn timeit<T, F>(description: &str, f: F) -> (T, Duration)
+    where F: FnOnce() -> T
+{
+    let sw = Stopwatch::start_new();
+    let result = f();
+    let t = sw.elapsed();
+    println!("{} in {}", description, pretty_duration(t));
+    (result, t)
 }
