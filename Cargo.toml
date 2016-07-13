@@ -4,12 +4,20 @@ name = "suptracer"
 version = "0.1.0"
 
 [dependencies]
+arrayvec = "0.3.16"
 bmp = "0.1.4"
 cgmath = "0.9.1"
 conv = "0.3.3"
 obj-rs = "0.4.15"
+rayon = "0.4.0"
 scoped_threadpool = "0.1.7"
 stopwatch = "0.0.7"
 
 [dependencies.watertight-triangle]
 path = "../watertight-triangle"
+
+[profile]
+
+[profile.release]
+lto = true
+panic = "abort"

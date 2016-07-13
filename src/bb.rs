@@ -1,75 +1,98 @@
-use super::{Ray, Tri};
-use cgmath::{Vector3, vec3};
 use std::fmt;
 use std::f32;
+use cgmath::{Vector3, vec3};
 
-#[derive(Clone, Debug)]
+use geom::{Ray, Tri};
+
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Aabb {
     pub min: Vector3<f32>,
     pub max: Vector3<f32>,
 }
 
 impl Aabb {
-    pub fn new(tris: &[Tri]) -> Aabb {
-        let mut min = vec3(f32::INFINITY, f32::INFINITY, f32::INFINITY);
-        let mut max = -min;
-        // FIXME f32::min calls fmin, which is robust against NaN but may be
-        // unnecessarily slow since it can't be mapped to SSE
+    pub fn new(tris: &[Tri]) -> Self {
+        let mut res = Aabb::empty();
         for tri in tris {
-            for v in &[tri.a, tri.b, tri.c] {
-                min.x = min.x.min(v.x);
-                min.y = min.y.min(v.y);
-                min.z = min.z.min(v.z);
-                max.x = max.x.max(v.x);
-                max.y = max.y.max(v.y);
-                max.z = max.z.max(v.z);
-            }
+            res.add_point(&tri.a);
+            res.add_point(&tri.b);
+            res.add_point(&tri.c);
         }
+        res
+    }
+
+    pub fn from_points(points: &[Vector3<f32>]) -> Self {
+        let mut res = Aabb::empty();
+        for p in points {
+            res.add_point(p);
+        }
+        res
+    }
+
+    pub fn empty() -> Self {
+        let min = vec3(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+        let max = -min;
         Aabb {
             min: min,
             max: max,
         }
     }
 
-    pub fn with_min(&self, axis: usize, min: f32) -> Self {
-        let mut new = self.clone();
-        new.min[axis] = min;
-        new
+    pub fn add_point(&mut self, v: &Vector3<f32>) {
+        // FIXME f32::min calls fmin, which is robust against NaN but may be
+        // unnecessarily slow since it can't be mapped to SSE
+        self.min.x = self.min.x.min(v.x);
+        self.min.y = self.min.y.min(v.y);
+        self.min.z = self.min.z.min(v.z);
+        self.max.x = self.max.x.max(v.x);
+        self.max.y = self.max.y.max(v.y);
+        self.max.z = self.max.z.max(v.z);
     }
 
-    pub fn with_max(&self, axis: usize, max: f32) -> Self {
-        let mut new = self.clone();
-        new.max[axis] = max;
-        new
+    pub fn union(&self, other: &Self) -> Self {
+        Aabb {
+            min: vec3(self.min.x.min(other.min.x),
+                      self.min.y.min(other.min.y),
+                      self.min.z.min(other.min.z)),
+            max: vec3(self.max.x.max(other.max.x),
+                      self.max.y.max(other.max.y),
+                      self.max.z.max(other.max.z)),
+        }
     }
 
-    pub fn intersect(&self, r: &Ray, t1: f32) -> Option<f32> {
-        // Williams, Amy, et al. "An efficient and robust ray-box intersection algorithm."
-        // ACM SIGGRAPH 2005 Courses. ACM, 2005.
+    pub fn surface_area(&self) -> f32 {
+        if self == &Aabb::empty() {
+            return 0.0;
+        }
+        let d = self.max - self.min;
+        let area = 2.0 * (d.x * d.y + d.x * d.z + d.y * d.z);
+        if !area.is_finite() {
+            println!("inf surface area: {:?}", self);
+        }
+        area
+    }
+
+    // Williams, Amy, et al. "An efficient and robust ray-box intersection algorithm."
+    // ACM SIGGRAPH 2005 Courses. ACM, 2005.
+    pub fn intersect(&self, r: &Ray, sign: [usize; 3], inv_dir: Vector3<f32>) -> bool {
         let p = [self.min, self.max];
-        let sign = [(r.d[0] < 0.0) as usize, (r.d[1] < 0.0) as usize, (r.d[2] < 0.0) as usize];
-        let inv_dir = 1.0 / r.d;
         let mut tmin = (p[sign[0]].x - r.o.x) * inv_dir.x;
         let mut tmax = (p[1 - sign[0]].x - r.o.x) * inv_dir.x;
         let tymin = (p[sign[1]].y - r.o.y) * inv_dir.y;
         let tymax = (p[1 - sign[1]].y - r.o.y) * inv_dir.y;
         if tmin > tymax || tymin > tmax {
-            return None;
+            return false;
         }
         tmin = tmin.min(tymin);
         tmax = tmax.max(tymax);
         let tzmin = (p[sign[2]].z - r.o.z) * inv_dir.z;
         let tzmax = (p[1 - sign[2]].z - r.o.z) * inv_dir.z;
         if tmin > tzmax || tzmin > tmax {
-            return None;
+            return false;
         }
         tmin = tmin.min(tzmin);
         tmax = tmax.max(tzmax);
-        if tmin < t1 && tmax > 0.0 {
-            Some(tmax)
-        } else {
-            None
-        }
+        tmin < r.t_max.get() && tmax > 0.0
     }
 }
 
