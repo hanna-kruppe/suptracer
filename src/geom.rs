@@ -1,10 +1,12 @@
-use std::cell::Cell;
-use std::{u32, f32};
-use cgmath::Vector3;
-use conv::prelude::*;
-use watertight_triangle;
 
-use super::Color;
+
+use beebox::Aabb;
+use cast::u32;
+use cgmath::Vector3;
+use film::Color;
+use std::{f32, u32};
+use std::cell::Cell;
+use watertri;
 
 #[derive(Clone, Debug)]
 pub struct Tri {
@@ -15,8 +17,8 @@ pub struct Tri {
 }
 
 impl Tri {
-    pub fn centroid(&self) -> Vector3<f32> {
-        (self.a + self.b + self.c) / 3.0
+    pub fn bbox(&self) -> Aabb {
+        Aabb::new([self.a, self.b, self.c].iter().cloned())
     }
 }
 
@@ -25,6 +27,7 @@ pub struct Ray {
     pub o: Vector3<f32>,
     pub d: Vector3<f32>,
     pub t_max: Cell<f32>,
+    pub traversal_steps: Cell<u32>,
 }
 
 impl Ray {
@@ -33,6 +36,7 @@ impl Ray {
             o: origin,
             d: direction,
             t_max: Cell::new(f32::INFINITY),
+            traversal_steps: Cell::new(0),
         }
     }
 }
@@ -72,7 +76,7 @@ impl Hit {
         }
     }
 
-    pub fn replace(&mut self, tri_id: u32, i: watertight_triangle::Intersection) {
+    pub fn replace(&mut self, tri_id: u32, i: watertri::Intersection) {
         self.tri_id = tri_id;
         self.t = i.t;
         self.u = i.u;
@@ -82,27 +86,27 @@ impl Hit {
 }
 
 pub trait TriSliceExt {
-    fn intersect(&self,
-                 offset: u32,
-                 ray: &Ray,
-                 ray_data: &watertight_triangle::RayData,
-                 hit: &mut Hit);
+    fn bbox(&self) -> Aabb;
+    fn intersect(&self, offset: u32, ray: &Ray, ray_data: &watertri::RayData, hit: &mut Hit);
 }
 
 impl TriSliceExt for [Tri] {
-    fn intersect(&self,
-                 offset: u32,
-                 ray: &Ray,
-                 ray_data: &watertight_triangle::RayData,
-                 hit: &mut Hit) {
+    fn intersect(&self, offset: u32, ray: &Ray, ray_data: &watertri::RayData, hit: &mut Hit) {
         for (i, tri) in self.iter().enumerate() {
-            let corners = (tri.a, tri.b, tri.c);
-            if let Some(intersection) = watertight_triangle::intersect(corners, ray_data) {
+            if let Some(intersection) = ray_data.intersect(tri.a, tri.b, tri.c) {
                 if intersection.t < ray.t_max.get() {
                     ray.t_max.set(intersection.t);
-                    hit.replace(offset + i.value_as::<u32>().unwrap(), intersection);
+                    hit.replace(offset + u32(i).unwrap(), intersection);
                 }
             }
         }
+    }
+
+    fn bbox(&self) -> Aabb {
+        let mut res = Aabb::empty();
+        for tri in self {
+            res = res.union(tri.bbox());
+        }
+        res
     }
 }
