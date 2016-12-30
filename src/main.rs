@@ -7,25 +7,25 @@ extern crate bmp;
 extern crate cgmath;
 extern crate clap;
 extern crate cast;
-extern crate itertools;
 #[macro_use]
 extern crate lazy_static;
 extern crate obj;
 extern crate rayon;
 extern crate regex;
-extern crate scoped_threadpool;
 extern crate stopwatch;
 extern crate watertri;
 
-use cast::usize;
+use cast::{usize, u32};
 use cgmath::{InnerSpace, vec3};
 
 use film::{Frame, Color};
 use geom::Ray;
+use rayon::prelude::*;
 use scene::Scene;
-use scoped_threadpool::Pool;
 use std::f32;
 use std::path::PathBuf;
+
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use stopwatch::Stopwatch;
 
@@ -41,6 +41,7 @@ pub struct Config {
     image_height: u32,
     sah_buckets: u32,
     sah_traversal_cost: f32,
+    num_threads: Option<u32>,
 }
 
 fn primary_ray(x: u32, y: u32, cfg: &Config) -> Ray {
@@ -55,7 +56,7 @@ fn primary_ray(x: u32, y: u32, cfg: &Config) -> Ray {
 fn trace(r: Ray, scene: &Scene) -> Color {
     const BACKGROUND: Color = Color(0, 0, 255);
 
-    let hit = scene.mesh.intersect(&r);
+    let hit = scene.intersect(&r);
     // For heat map, return this instead of hit object's color:
     // r.traversal_steps.get()
     if hit.is_valid() {
@@ -65,36 +66,27 @@ fn trace(r: Ray, scene: &Scene) -> Color {
     }
 }
 
-
 fn render(scene: Scene, cfg: &Config) -> (Frame<Color>, u32) {
     let mut frame = Frame::new(cfg.image_width, cfg.image_height, Color(0, 0, 0));
-    // TODO consider more coarse grained parallelism
-    let mut pool = Pool::new(4);
-    let mut ray_count = 0;
-    pool.scoped(|scope| {
-        for ((i, j), px) in frame.pixels() {
-            let scene = &scene;
-            ray_count += 1;
-            scope.execute(move || {
-                *px = trace(primary_ray(i, j, cfg), scene);
-            });
-        }
+    frame.pixels_mut().for_each(|(x, y, px)| {
+        *px = trace(primary_ray(x, y, cfg), &scene);
     });
-    (frame, ray_count)
+    let rays_tested = scene.rays_tested.load(Ordering::SeqCst);
+    (frame, u32(rays_tested).unwrap())
 }
 
 fn pretty_duration(d: Duration) -> String {
     if d.as_secs() > 0 {
         let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-        return format!("{:.2}s", secs);
+        return format!("{:>6.2}s", secs);
     }
     let ns = d.subsec_nanos();
     if ns > 1_000_000 {
-        return format!("{:.2}ms", ns as f64 / 1e6);
+        return format!("{:>6.2}ms", ns as f64 / 1e6);
     } else if ns > 1_000 {
-        return format!("{:.2}µs", ns as f64 / 1e3);
+        return format!("{:>6.2}µs", ns as f64 / 1e3);
     } else {
-        return format!("{}ns", ns);
+        return format!("{:>6}ns", ns);
     }
 }
 
@@ -104,14 +96,18 @@ fn timeit<T, F>(description: &str, f: F) -> (T, Duration)
     let sw = Stopwatch::start_new();
     let result = f();
     let t = sw.elapsed();
-    println!("[{:<8}] {}", pretty_duration(t), description);
+    println!("[{}] {}", pretty_duration(t), description);
     (result, t)
 }
 
 fn main() {
     let cfg = cli::parse_matches(cli::build_app().get_matches());
+    if let Some(num_threads) = cfg.num_threads {
+        rayon::initialize(rayon::Configuration::new().set_num_threads(usize(num_threads))).unwrap();
+    }
+
     let scene = Scene::new(&cfg);
-    let ((mut frame, ray_count), t) = timeit("traced rays", move || render(scene, &cfg));
+    let ((frame, ray_count), t) = timeit("traced rays", move || render(scene, &cfg));
     timeit("wrote bmp",
            move || frame.to_bmp().save("bunny.bmp").unwrap());
     let seconds = t.as_secs() as f64 + (t.subsec_nanos() as f64 / 1e9);

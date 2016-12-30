@@ -1,6 +1,7 @@
 
 
 use beebox::Aabb;
+use beevage;
 use cast::u32;
 use cgmath::Vector3;
 use film::Color;
@@ -19,6 +20,12 @@ pub struct Tri {
 impl Tri {
     pub fn bbox(&self) -> Aabb {
         Aabb::new([self.a, self.b, self.c].iter().cloned())
+    }
+}
+
+impl beevage::Primitive for Tri {
+    fn bounding_box(&self) -> Aabb {
+        self.bbox()
     }
 }
 

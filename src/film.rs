@@ -1,6 +1,6 @@
 use bmp;
-use cast::usize;
-use itertools::Itertools;
+use cast::{usize, u32};
+use rayon::prelude::*;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Color(pub u8, pub u8, pub u8);
@@ -32,20 +32,36 @@ impl<T: Clone> Frame<T> {
     }
 }
 
-impl<T> Frame<T> {
-    // rustfmt 0.6.2 breaks -> impl Trait by replacing "Trait" with "TODO"
-    #[cfg_attr(rustfmt, rustfmt_skip)]
-    pub fn pixels<'a>(&'a mut self) -> impl Iterator<Item=((u32, u32), &'a mut T)> {
-        (0..self.width).cartesian_product(0..self.height).zip(self.buffer.iter_mut())
+// False positive in a clippy lint, see Manishearth/rust-clippy#740
+// TODO fix https://github.com/Manishearth/rust-clippy/issues/1133 so this can be a cfg_attr
+#[allow(unknown_lints, needless_lifetimes)]
+impl<T: Sync + Send> Frame<T> {
+    pub fn pixels<'a>(&'a self) -> impl IndexedParallelIterator<Item = (u32, u32, &'a T)> {
+        // TODO why is this height and not width?
+        let height = self.height;
+        self.buffer[..]
+            .par_iter()
+            .enumerate()
+            .map(move |(i, px)| (u32(i).unwrap() / height, u32(i).unwrap() % height, px))
+    }
+
+    pub fn pixels_mut<'a>(&'a mut self)
+                          -> impl IndexedParallelIterator<Item = (u32, u32, &'a mut T)> {
+        let height = self.height;
+        self.buffer[..]
+            .par_iter_mut()
+            .enumerate()
+            .map(move |(i, px)| (u32(i).unwrap() / height, u32(i).unwrap() % height, px))
     }
 }
 
 #[allow(dead_code)]
 impl Frame<Color> {
-    pub fn to_bmp(&mut self) -> bmp::Image {
+    pub fn to_bmp(&self) -> bmp::Image {
         let mut img = bmp::Image::new(self.width, self.height);
-        for ((i, j), color) in self.pixels() {
-            img.set_pixel(i, j, color.to_px());
+        // FIXME .collect() shouldn't be necessary
+        for (x, y, color) in self.pixels().collect::<Vec<_>>() {
+            img.set_pixel(x, y, color.to_px());
         }
         img
     }
@@ -54,15 +70,16 @@ impl Frame<Color> {
 // Integer quantities are generally used for heat maps (e.g., traversal steps in BVH)
 #[allow(dead_code)]
 impl Frame<u32> {
-    pub fn to_bmp(&mut self) -> bmp::Image {
+    pub fn to_bmp(&self) -> bmp::Image {
         let min = self.buffer.iter().cloned().min().unwrap();
         let max = self.buffer.iter().cloned().max().unwrap();
         let mut img = bmp::Image::new(self.width, self.height);
-        for ((i, j), heat) in self.pixels() {
+        // FIXME .collect() shouldn't be necessary
+        for (x, y, heat) in self.pixels().collect::<Vec<_>>() {
             let intensity = (*heat - min) as f64 / (max - min) as f64;
             debug_assert!(0.0 <= intensity && intensity <= 1.0);
             let quantized_intensity = (intensity * 255.0).round() as u8;
-            img.set_pixel(i, j, Color(quantized_intensity, 0, 0).to_px());
+            img.set_pixel(x, y, Color(quantized_intensity, 0, 0).to_px());
         }
         img
     }

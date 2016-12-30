@@ -6,16 +6,26 @@ use obj;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{Config, timeit};
 
 pub struct Scene {
     pub mesh: Mesh,
+    pub rays_tested: AtomicUsize,
 }
 
 impl Scene {
     pub fn new(cfg: &Config) -> Self {
-        Scene { mesh: read_obj(&cfg.input_file, cfg) }
+        Scene {
+            mesh: read_obj(&cfg.input_file, cfg),
+            rays_tested: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn intersect(&self, r: &Ray) -> Hit {
+        self.rays_tested.fetch_add(1, Ordering::SeqCst);
+        bvh::traverse(&self.mesh.tris, &self.mesh.accel, r)
     }
 }
 
@@ -27,15 +37,11 @@ pub struct Mesh {
 impl Mesh {
     fn new(mut tris: Vec<Tri>, cfg: &Config) -> Self {
         normalize(&mut tris);
-        let (bvh, tris) = bvh::construct(&mut tris, cfg);
+        let (bvh, tris) = bvh::construct(&tris, cfg);
         Mesh {
             tris: tris,
             accel: bvh,
         }
-    }
-
-    pub fn intersect(&self, r: &Ray) -> Hit {
-        bvh::traverse(&self.tris, &self.accel, r)
     }
 }
 

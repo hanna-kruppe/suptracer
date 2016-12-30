@@ -29,12 +29,12 @@ fn is_positive_int(s: String) -> Result<(), String> {
 fn is_positive_float(s: String) -> Result<(), String> {
     lazy_static! {
         static ref POSITIVE_FLOAT_REGEX: Regex =
-            Regex::new(r"^[:digit:]+\.[:digit:]+(e[+-]?[:digit:]+)?$").unwrap();
+            Regex::new(r"^[:digit:]+\.[:digit:]+$").unwrap();
     }
     if POSITIVE_FLOAT_REGEX.is_match(&s) {
         Ok(())
     } else {
-        Err("Value must be a positive number of the form 12.34e56".to_string())
+        Err("Value must be a positive number of the form 12.34".to_string())
     }
 }
 
@@ -67,13 +67,19 @@ pub fn build_app() -> App<'static, 'static> {
             .long("sah-tcost")
             .help("Relative cost of BVH traversal step compared to triangle intersection")
             .value_name("COST")
-            .default_value("8.0")
+            .default_value("1.0")
             .validator(is_positive_float))
         .arg(Arg::with_name("input")
             .help("OBJ file to render")
             .value_name("FILE")
             .required(true)
             .index(1))
+        .arg(Arg::with_name("num-threads")
+            .short("j")
+            .help("Number of threads to use")
+            .value_name("N")
+            .required(false)
+            .validator(is_positive_int))
 }
 
 pub fn parse_matches(matches: ArgMatches) -> Config {
@@ -86,5 +92,6 @@ pub fn parse_matches(matches: ArgMatches) -> Config {
         image_height: height,
         sah_buckets: matches.value_of("sah-buckets").unwrap().parse().unwrap(),
         sah_traversal_cost: matches.value_of("sah-traversal-cost").unwrap().parse().unwrap(),
+        num_threads: matches.value_of("num-threads").map(|s| s.parse().unwrap()),
     }
 }
