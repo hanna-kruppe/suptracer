@@ -41,7 +41,7 @@ fn is_positive_float(s: String) -> Result<(), String> {
 pub fn build_app() -> App<'static, 'static> {
     App::new("suptracer")
         .version("0.0.0")
-        .author("Robin Kruppe <robin.kruppe@gmail.com>")
+        .author(crate_authors!())
         .about("Approximately the simplest useful path tracer")
         .arg(Arg::with_name("dimensions")
             .short("d")
@@ -57,7 +57,7 @@ pub fn build_app() -> App<'static, 'static> {
             .value_name("N")
             .default_value("16")
             .validator(is_positive_int))
-        .arg(Arg::with_name("outfile")
+        .arg(Arg::with_name("output")
             .short("o")
             .long("out")
             .help("File name for output")
@@ -80,18 +80,28 @@ pub fn build_app() -> App<'static, 'static> {
             .value_name("N")
             .required(false)
             .validator(is_positive_int))
+        .arg(Arg::with_name("heatmap")
+            .long("--heat")
+            .help("Render a heatmap")
+            .required(false))
 }
 
 pub fn parse_matches(matches: ArgMatches) -> Config {
+    let input = matches.value_of("input").map(PathBuf::from).unwrap();
+    let output =
+        matches.value_of("output").map(PathBuf::from).unwrap_or(input.with_extension("bmp"));
+
     let dim = matches.value_of("dimensions").unwrap();
     let dim_captures = IMG_DIM_REGEX.captures(dim).unwrap();
     let (width, height) = (dim_captures[1].parse().unwrap(), dim_captures[2].parse().unwrap());
     Config {
-        input_file: matches.value_of("input").map(PathBuf::from).unwrap(),
+        input_file: input,
+        output_file: output,
         image_width: width,
         image_height: height,
         sah_buckets: matches.value_of("sah-buckets").unwrap().parse().unwrap(),
         sah_traversal_cost: matches.value_of("sah-traversal-cost").unwrap().parse().unwrap(),
         num_threads: matches.value_of("num-threads").map(|s| s.parse().unwrap()),
+        heatmap: matches.is_present("heatmap"),
     }
 }

@@ -5,6 +5,7 @@ extern crate beebox;
 extern crate beevage;
 extern crate bmp;
 extern crate cgmath;
+#[macro_use]
 extern crate clap;
 extern crate cast;
 #[macro_use]
@@ -12,7 +13,6 @@ extern crate lazy_static;
 extern crate obj;
 extern crate rayon;
 extern crate regex;
-extern crate stopwatch;
 extern crate watertri;
 
 use cast::{usize, u32};
@@ -24,10 +24,10 @@ use rayon::prelude::*;
 use scene::Scene;
 use std::f32;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use stopwatch::Stopwatch;
 
 mod bvh;
 mod cli;
@@ -37,11 +37,13 @@ mod scene;
 
 pub struct Config {
     input_file: PathBuf,
+    output_file: PathBuf,
     image_width: u32,
     image_height: u32,
     sah_buckets: u32,
     sah_traversal_cost: f32,
     num_threads: Option<u32>,
+    heatmap: bool,
 }
 
 fn primary_ray(x: u32, y: u32, cfg: &Config) -> Ray {
@@ -53,32 +55,36 @@ fn primary_ray(x: u32, y: u32, cfg: &Config) -> Ray {
     Ray::new(vec3(0.0, 0.0, 0.0), d)
 }
 
-fn trace(r: Ray, scene: &Scene) -> Color {
+fn render(scene: &Scene, cfg: &Config) -> Frame<Color> {
     const BACKGROUND: Color = Color(0, 0, 255);
 
-    let hit = scene.intersect(&r);
-    // For heat map, return this instead of hit object's color:
-    // r.traversal_steps.get()
-    if hit.is_valid() {
-        scene.mesh.tris[usize(hit.tri_id)].color
-    } else {
-        BACKGROUND
-    }
+    let mut frame = Frame::new(cfg.image_width, cfg.image_height, BACKGROUND);
+    frame.pixels_mut().for_each(|(x, y, px)| {
+        let r = primary_ray(x, y, cfg);
+        let hit = scene.intersect(&r);
+        if hit.is_valid() {
+            *px = scene.mesh.tris[usize(hit.tri_id)].color;
+        } else {
+            *px = BACKGROUND;
+        }
+    });
+    frame
 }
 
-fn render(scene: Scene, cfg: &Config) -> (Frame<Color>, u32) {
-    let mut frame = Frame::new(cfg.image_width, cfg.image_height, Color(0, 0, 0));
+fn render_heatmap(scene: &Scene, cfg: &Config) -> Frame<u32> {
+    let mut frame = Frame::new(cfg.image_width, cfg.image_height, 0);
     frame.pixels_mut().for_each(|(x, y, px)| {
-        *px = trace(primary_ray(x, y, cfg), &scene);
+        let r = primary_ray(x, y, cfg);
+        scene.intersect(&r);
+        *px = r.traversal_steps.get();
     });
-    let rays_tested = scene.rays_tested.load(Ordering::SeqCst);
-    (frame, u32(rays_tested).unwrap())
+    frame
 }
 
 fn pretty_duration(d: Duration) -> String {
     if d.as_secs() > 0 {
         let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
-        return format!("{:>6.2}s", secs);
+        return format!("{:>6.2}s ", secs);
     }
     let ns = d.subsec_nanos();
     if ns > 1_000_000 {
@@ -93,9 +99,9 @@ fn pretty_duration(d: Duration) -> String {
 fn timeit<T, F>(description: &str, f: F) -> (T, Duration)
     where F: FnOnce() -> T
 {
-    let sw = Stopwatch::start_new();
+    let t0 = Instant::now();
     let result = f();
-    let t = sw.elapsed();
+    let t = Instant::now() - t0;
     println!("[{}] {}", pretty_duration(t), description);
     (result, t)
 }
@@ -107,13 +113,25 @@ fn main() {
     }
 
     let scene = Scene::new(&cfg);
-    let ((frame, ray_count), t) = timeit("traced rays", move || render(scene, &cfg));
-    timeit("wrote bmp",
-           move || frame.to_bmp().save("bunny.bmp").unwrap());
+    let output_file = cfg.output_file.display().to_string();
+    let t;
+    if cfg.heatmap {
+        let (frame, render_time) = timeit("traced rays", || render_heatmap(&scene, &cfg));
+        t = render_time;
+        timeit("wrote render",
+               move || frame.to_bmp().save(&output_file).unwrap());
+    } else {
+        let (frame, render_time) = timeit("traced rays", || render(&scene, &cfg));
+        t = render_time;
+        timeit("wrote heatmap",
+               move || frame.to_bmp().save(&output_file).unwrap());
+
+    }
+    let rays_tested = u32(scene.rays_tested.load(Ordering::SeqCst)).unwrap();
     let seconds = t.as_secs() as f64 + (t.subsec_nanos() as f64 / 1e9);
-    let mrays = ray_count as f64 / 1e6;
+    let mrays = rays_tested as f64 / 1e6;
     println!("{:.2}M rays @ {:.3} Mray/s ({} per ray)",
              mrays,
              mrays / seconds,
-             pretty_duration(t / ray_count));
+             pretty_duration(t / rays_tested));
 }

@@ -1,5 +1,3 @@
-
-
 use beebox::Aabb;
 use beevage;
 use cast::u32;
