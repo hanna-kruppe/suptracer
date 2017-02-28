@@ -7,7 +7,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
 use super::{Config, timeit};
 
 pub struct Scene {

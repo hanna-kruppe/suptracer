@@ -24,8 +24,6 @@ path = "../beevage"
 [dependencies.watertri]
 path = "../watertri"
 
-[profile]
-
 [profile.release]
 lto = true
 panic = "abort"

@@ -17,17 +17,15 @@ extern crate watertri;
 
 use cast::{usize, u32};
 use cgmath::{InnerSpace, vec3};
-
 use film::{Frame, Color};
 use geom::Ray;
 use rayon::prelude::*;
 use scene::Scene;
 use std::f32;
 use std::path::PathBuf;
-use std::time::Instant;
-
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 
 mod bvh;
 mod cli;

@@ -18,16 +18,15 @@ impl Color {
 pub struct Frame<T> {
     width: u32,
     height: u32,
-    buffer: Box<[T]>,
+    buffer: Vec<T>,
 }
 
 impl<T: Clone> Frame<T> {
     pub fn new(width: u32, height: u32, value: T) -> Self {
-        let buf = vec![value; usize(width) * usize(height)];
         Frame {
             width: width,
             height: height,
-            buffer: buf.into_boxed_slice(),
+            buffer: vec![value; usize(width) * usize(height)],
         }
     }
 }
