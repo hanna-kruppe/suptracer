@@ -49,8 +49,9 @@ pub struct Config {
 fn primary_ray(x: u32, y: u32, cfg: &Config) -> Ray {
     let norm_x = (x as f32 + 0.5) / (cfg.image_width as f32);
     let norm_y = (y as f32 + 0.5) / (cfg.image_height as f32);
-    let cam_x = 2.0 * norm_x - 1.0;
-    let cam_y = 1.0 - 2.0 * norm_y;
+    let aspect_ratio = cfg.image_width as f32 / cfg.image_height as f32;
+    let cam_x = aspect_ratio * (norm_x - 0.5);
+    let cam_y = aspect_ratio * (0.5 - norm_y);
     let d = vec3(cam_x, cam_y, -1.0).normalize();
     Ray::new(vec3(0.0, 0.0, 0.0), d)
 }
