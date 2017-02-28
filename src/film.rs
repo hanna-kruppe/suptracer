@@ -71,12 +71,22 @@ impl Frame<Color> {
 #[allow(dead_code)]
 impl Frame<u32> {
     pub fn to_bmp(&self) -> bmp::Image {
-        let min = self.buffer.iter().cloned().min().unwrap();
-        let max = self.buffer.iter().cloned().max().unwrap();
+        let count = self.buffer.len();
+        let sorted = {
+            let mut v = self.buffer.clone();
+            v.sort();
+            v
+        };
+        let pct05 = sorted[count * 5 / 100];
+        let pct95 = sorted[count * 95 / 100];
+        println!("BVH traversal steps: 5th percentile={} / 95th percentile={}",
+                 pct05,
+                 pct95);
         let mut img = bmp::Image::new(self.width, self.height);
         // FIXME .collect() shouldn't be necessary
         for (x, y, heat) in self.pixels().collect::<Vec<_>>() {
-            let intensity = (*heat - min) as f64 / (max - min) as f64;
+            let intensity = (*heat - pct05) as f64 / (pct95 - pct05) as f64;
+            let intensity = intensity.max(0.0).min(1.0);
             debug_assert!(0.0 <= intensity && intensity <= 1.0);
             let quantized_intensity = (intensity * 255.0).round() as u8;
             img.set_pixel(x, y, Color(quantized_intensity, 0, 0).to_px());
