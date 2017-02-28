@@ -5,7 +5,6 @@ use cast::{u32, usize};
 use geom::{Hit, Ray, Tri, TriSliceExt};
 use rayon::prelude::*;
 use std::u32;
-
 use super::{Config, timeit};
 use watertri;
 
@@ -78,16 +77,16 @@ fn compactify(nodes: &mut Vec<CompactNode>, node: beevage::Node) -> NodeId {
     let id = NodeId(u32(nodes.len()).unwrap());
     const INVALID_ID: u32 = u32::MAX;
     match node {
-        beevage::Node::Leaf(bb, tri_range) => {
-            let payload = u32(tri_range.len()).unwrap();
+        beevage::Node::Leaf { bb, primitive_range } => {
+            let payload = u32(primitive_range.len()).unwrap();
             assert!(payload & LEAF_OR_NODE_MASK == 0);
             nodes.push(CompactNode {
                 bb: bb,
-                offset: u32(tri_range.start).unwrap(),
+                offset: u32(primitive_range.start).unwrap(),
                 payload: payload,
             });
         }
-        beevage::Node::Inner(bb, children, axis) => {
+        beevage::Node::Inner { bb, children, axis } => {
             let axis_id = match axis {
                 Axis::X => 0,
                 Axis::Y => 1,
@@ -114,24 +113,19 @@ pub fn construct(tris: &[Tri], cfg: &Config) -> (Bvh, Vec<Tri>) {
     let msg = format!("building BVH for {} tris", tris.len());
     let (res, _) = timeit(&msg, move || {
         let bb = tris.bbox();
-        let mut refs = Vec::with_capacity(tris.len());
-        tris.par_iter()
-            .map(Tri::bbox)
-            .enumerate()
-            .map(|(id, tri)| beevage::PrimRef::new(id, tri))
-            .collect_into(&mut refs);
         let config = beevage::Config {
             bucket_count: usize(cfg.sah_buckets),
             traversal_cost: cfg.sah_traversal_cost,
             max_depth: MAX_DEPTH,
         };
-        let (root, node_count) = beevage::binned_sah(config, &mut refs, bb);
+        let beevage::Bvh { root, node_count, primitives } = beevage::binned_sah(config, tris, bb);
         let mut bvh_tris = Vec::with_capacity(tris.len());
-        refs.into_par_iter().map(|rf| tris[rf.id].clone()).collect_into(&mut bvh_tris);
+        primitives.into_par_iter().map(|p| tris[p.index()].clone()).collect_into(&mut bvh_tris);
         (Bvh::compactify(root, node_count), bvh_tris)
     });
     res
 }
+
 
 pub fn traverse(tris: &[Tri], tree: &Bvh, r: &Ray) -> Hit {
     // TODO make layout breadth-first and use distance-based traversal
