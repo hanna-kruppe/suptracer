@@ -117,12 +117,12 @@ fn main() {
     if cfg.heatmap {
         let (frame, render_time) = timeit("traced rays", || render_heatmap(&scene, &cfg));
         t = render_time;
-        timeit("wrote render",
+        timeit("wrote heatmap",
                move || frame.to_bmp().save(&output_file).unwrap());
     } else {
         let (frame, render_time) = timeit("traced rays", || render(&scene, &cfg));
         t = render_time;
-        timeit("wrote heatmap",
+        timeit("wrote render",
                move || frame.to_bmp().save(&output_file).unwrap());
 
     }
