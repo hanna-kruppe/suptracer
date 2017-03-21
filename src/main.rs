@@ -17,7 +17,7 @@ extern crate watertri;
 
 use cast::{usize, u32};
 use cgmath::{InnerSpace, vec3};
-use film::{Frame, Color};
+use film::{Frame, Depthmap, Heatmap};
 use geom::Ray;
 use rayon::prelude::*;
 use scene::Scene;
@@ -33,6 +33,11 @@ mod film;
 mod geom;
 mod scene;
 
+enum RenderKind {
+    Depthmap,
+    Heatmap,
+}
+
 pub struct Config {
     input_file: PathBuf,
     output_file: PathBuf,
@@ -41,7 +46,7 @@ pub struct Config {
     sah_buckets: u32,
     sah_traversal_cost: f32,
     num_threads: Option<u32>,
-    heatmap: bool,
+    render_kind: RenderKind,
 }
 
 fn primary_ray(x: u32, y: u32, cfg: &Config) -> Ray {
@@ -54,30 +59,51 @@ fn primary_ray(x: u32, y: u32, cfg: &Config) -> Ray {
     Ray::new(vec3(0.0, 0.0, 0.0), d)
 }
 
-fn render(scene: &Scene, cfg: &Config) -> Frame<Color> {
-    const BACKGROUND: Color = Color(0, 0, 255);
-
-    let mut frame = Frame::new(cfg.image_width, cfg.image_height, BACKGROUND);
+fn render_depthmap(scene: &Scene, cfg: &Config) -> Box<film::ToBmp> {
+    let mut frame = Frame::new(cfg.image_width, cfg.image_height, f32::INFINITY);
     frame.pixels_mut().for_each(|(x, y, px)| {
         let r = primary_ray(x, y, cfg);
         let hit = scene.intersect(&r);
         if hit.is_valid() {
-            *px = scene.mesh.tris[usize(hit.tri_id)].color;
-        } else {
-            *px = BACKGROUND;
+            *px = hit.t;
         }
     });
-    frame
+    Box::new(Depthmap(frame))
 }
 
-fn render_heatmap(scene: &Scene, cfg: &Config) -> Frame<u32> {
+fn render_heatmap(scene: &Scene, cfg: &Config) -> Box<film::ToBmp> {
     let mut frame = Frame::new(cfg.image_width, cfg.image_height, 0);
     frame.pixels_mut().for_each(|(x, y, px)| {
         let r = primary_ray(x, y, cfg);
         scene.intersect(&r);
         *px = r.traversal_steps.get();
     });
-    frame
+    Box::new(Heatmap(frame))
+}
+
+fn main() {
+    let cfg = cli::parse_matches(cli::build_app().get_matches());
+    if let Some(num_threads) = cfg.num_threads {
+        let rayon_cfg = rayon::Configuration::new().set_num_threads(usize(num_threads));
+        rayon::initialize(rayon_cfg).unwrap();
+    }
+
+    let scene = Scene::new(&cfg);
+    let output_file = cfg.output_file.display().to_string();
+    let render: fn(_, _) -> _ = match cfg.render_kind {
+        RenderKind::Depthmap => render_depthmap,
+        RenderKind::Heatmap => render_heatmap,
+    };
+    let (frame, t) = timeit("rendering", || render(&scene, &cfg));
+    timeit("creating BMP",
+           move || frame.to_bmp().save(&output_file).unwrap());
+    let rays_tested = u32(scene.rays_tested.load(Ordering::SeqCst)).unwrap();
+    let seconds = t.as_secs() as f64 + (t.subsec_nanos() as f64 / 1e9);
+    let mrays = rays_tested as f64 / 1e6;
+    println!("{:.2}M rays @ {:.3} Mray/s ({} per ray)",
+             mrays,
+             mrays / seconds,
+             pretty_duration(t / rays_tested));
 }
 
 fn pretty_duration(d: Duration) -> String {
@@ -103,34 +129,4 @@ fn timeit<T, F>(description: &str, f: F) -> (T, Duration)
     let t = Instant::now() - t0;
     println!("[{}] {}", pretty_duration(t), description);
     (result, t)
-}
-
-fn main() {
-    let cfg = cli::parse_matches(cli::build_app().get_matches());
-    if let Some(num_threads) = cfg.num_threads {
-        rayon::initialize(rayon::Configuration::new().set_num_threads(usize(num_threads))).unwrap();
-    }
-
-    let scene = Scene::new(&cfg);
-    let output_file = cfg.output_file.display().to_string();
-    let t;
-    if cfg.heatmap {
-        let (frame, render_time) = timeit("traced rays", || render_heatmap(&scene, &cfg));
-        t = render_time;
-        timeit("wrote heatmap",
-               move || frame.to_bmp().save(&output_file).unwrap());
-    } else {
-        let (frame, render_time) = timeit("traced rays", || render(&scene, &cfg));
-        t = render_time;
-        timeit("wrote render",
-               move || frame.to_bmp().save(&output_file).unwrap());
-
-    }
-    let rays_tested = u32(scene.rays_tested.load(Ordering::SeqCst)).unwrap();
-    let seconds = t.as_secs() as f64 + (t.subsec_nanos() as f64 / 1e9);
-    let mrays = rays_tested as f64 / 1e6;
-    println!("{:.2}M rays @ {:.3} Mray/s ({} per ray)",
-             mrays,
-             mrays / seconds,
-             pretty_duration(t / rays_tested));
 }

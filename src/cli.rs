@@ -1,7 +1,7 @@
+use super::Config;
 use clap::{Arg, ArgMatches, App};
 use regex::Regex;
 use std::path::PathBuf;
-use super::Config;
 
 lazy_static! {
     static ref IMG_DIM_REGEX: Regex = Regex::new("^([:digit:]+)x([:digit:]+)$").unwrap();
@@ -80,10 +80,12 @@ pub fn build_app() -> App<'static, 'static> {
             .value_name("N")
             .required(false)
             .validator(is_positive_int))
-        .arg(Arg::with_name("heatmap")
-            .long("--heat")
-            .help("Render a heatmap")
-            .required(false))
+        .arg(Arg::with_name("render-kind")
+            .short("k")
+            .long("kind")
+            .help("Kind of render to create")
+            .default_value("depth")
+            .possible_values(&["depth", "heat"]))
 }
 
 pub fn parse_matches(matches: ArgMatches) -> Config {
@@ -102,6 +104,10 @@ pub fn parse_matches(matches: ArgMatches) -> Config {
         sah_buckets: matches.value_of("sah-buckets").unwrap().parse().unwrap(),
         sah_traversal_cost: matches.value_of("sah-traversal-cost").unwrap().parse().unwrap(),
         num_threads: matches.value_of("num-threads").map(|s| s.parse().unwrap()),
-        heatmap: matches.is_present("heatmap"),
+        render_kind: match matches.value_of("render-kind") {
+            Some("depth") => super::RenderKind::Depthmap,
+            Some("heat") => super::RenderKind::Heatmap,
+            other => panic!("BUG: unhandled render-kind {:?}", other),
+        },
     }
 }

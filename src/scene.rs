@@ -1,13 +1,12 @@
+use super::{Config, timeit};
 use bvh::{self, Bvh};
 use cgmath::{Vector3, vec3};
-use film::Color;
 use geom::{Hit, Ray, Tri, TriSliceExt};
 use obj;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use super::{Config, timeit};
 
 pub struct Scene {
     pub mesh: Mesh,
@@ -58,7 +57,6 @@ fn normalize(tris: &mut [Tri]) {
 }
 
 fn read_obj(path: &Path, cfg: &Config) -> Mesh {
-    const WHITE: Color = Color(255, 255, 255);
     let msg = format!("loading file: {}", path.display());
     let (tris, _) = timeit(&msg, || {
         let read = BufReader::new(File::open(path).unwrap());
@@ -71,7 +69,6 @@ fn read_obj(path: &Path, cfg: &Config) -> Mesh {
                 a: Vector3::from(o.vertices[i].position),
                 b: Vector3::from(o.vertices[j].position),
                 c: Vector3::from(o.vertices[k].position),
-                color: WHITE,
             });
         }
         tris

@@ -1,19 +1,8 @@
 use bmp;
 use cast::{usize, u32};
 use rayon::prelude::*;
-
-#[derive(Copy, Clone, Debug)]
-pub struct Color(pub u8, pub u8, pub u8);
-
-impl Color {
-    pub fn to_px(self) -> bmp::Pixel {
-        bmp::Pixel {
-            r: self.0,
-            g: self.1,
-            b: self.2,
-        }
-    }
-}
+use std::cmp;
+use std::f32;
 
 pub struct Frame<T> {
     width: u32,
@@ -41,6 +30,7 @@ impl<T: Sync + Send> Frame<T> {
         self.buffer[..]
             .par_iter()
             .enumerate()
+            // TODO iterate differently to avoid the divmod
             .map(move |(i, px)| (u32(i).unwrap() / height, u32(i).unwrap() % height, px))
     }
 
@@ -50,45 +40,73 @@ impl<T: Sync + Send> Frame<T> {
         self.buffer[..]
             .par_iter_mut()
             .enumerate()
+            // TODO iterate differently to avoid the divmod
             .map(move |(i, px)| (u32(i).unwrap() / height, u32(i).unwrap() % height, px))
     }
 }
 
-#[allow(dead_code)]
-impl Frame<Color> {
-    pub fn to_bmp(&self) -> bmp::Image {
-        let mut img = bmp::Image::new(self.width, self.height);
+/// Compute the linear interpolation coefficient for producing x from x0 and x1, i.e.,
+/// the scalar t \in [0, 1] such that x = (1 - t) * x0 + t * x1
+/// Panics if this is not possible, i.e., x is not between x0 and x1.
+fn inv_lerp<T: Copy + Into<f64> + PartialOrd>(x: T, x0: T, x1: T) -> f64 {
+    assert!(x0 <= x && x <= x1);
+    (x.into() - x0.into()) / (x1.into() - x0.into())
+}
+
+pub trait ToBmp {
+    fn to_bmp(&self) -> bmp::Image;
+}
+
+pub struct Depthmap(pub Frame<f32>);
+pub struct Heatmap(pub Frame<u32>);
+
+impl ToBmp for Depthmap {
+    fn to_bmp(&self) -> bmp::Image {
+        let Frame { ref buffer, width, height } = self.0;
+        let mut img = bmp::Image::new(width, height);
+        let min_depth = buffer.iter().cloned().fold(f32::INFINITY, f32::min);
+        assert!(min_depth != f32::INFINITY);
+        // inf is background, filter it out and give it a special color
+        let max_depth = buffer.iter()
+            .cloned()
+            .filter(|x| !x.is_infinite())
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert!(max_depth != f32::INFINITY);
         // FIXME .collect() shouldn't be necessary
-        for (x, y, color) in self.pixels().collect::<Vec<_>>() {
-            img.set_pixel(x, y, color.to_px());
+        for (x, y, &depth) in self.0.pixels().collect::<Vec<_>>() {
+            let color = if depth == f32::INFINITY {
+                bmp::Pixel {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                }
+            } else {
+                let intensity = inv_lerp(depth, min_depth, max_depth);
+                debug_assert!(0.0 <= intensity && intensity <= 1.0);
+                let s = ((1.0 - intensity) * 255.0).round() as u8;
+                bmp::Pixel { r: s, g: s, b: s }
+            };
+            img.set_pixel(x, y, color);
         }
         img
     }
 }
 
-// Integer quantities are generally used for heat maps (e.g., traversal steps in BVH)
-#[allow(dead_code)]
-impl Frame<u32> {
-    pub fn to_bmp(&self) -> bmp::Image {
-        let count = self.buffer.len();
-        let sorted = {
-            let mut v = self.buffer.clone();
-            v.sort();
-            v
-        };
-        let pct05 = sorted[count * 5 / 100];
-        let pct95 = sorted[count * 95 / 100];
-        println!("BVH traversal steps: 5th percentile={} / 95th percentile={}",
-                 pct05,
-                 pct95);
-        let mut img = bmp::Image::new(self.width, self.height);
+impl ToBmp for Heatmap {
+    fn to_bmp(&self) -> bmp::Image {
+        let Frame { ref buffer, width, height } = self.0;
+        let mut sorted = buffer.clone();
+        sorted.sort();
+        let pct05 = sorted[sorted.len() * 5 / 100];
+        let pct95 = sorted[sorted.len() * 95 / 100];
+        let mut img = bmp::Image::new(width, height);
         // FIXME .collect() shouldn't be necessary
-        for (x, y, heat) in self.pixels().collect::<Vec<_>>() {
-            let intensity = (*heat - pct05) as f64 / (pct95 - pct05) as f64;
-            let intensity = intensity.max(0.0).min(1.0);
+        for (x, y, &heat) in self.0.pixels().collect::<Vec<_>>() {
+            let clamped_heat = cmp::min(cmp::max(heat, pct05), pct95);
+            let intensity = inv_lerp(clamped_heat, pct05, pct95);
             debug_assert!(0.0 <= intensity && intensity <= 1.0);
-            let quantized_intensity = (intensity * 255.0).round() as u8;
-            img.set_pixel(x, y, Color(quantized_intensity, 0, 0).to_px());
+            let s = (intensity * 255.0).round() as u8;
+            img.set_pixel(x, y, bmp::Pixel { r: s, g: 0, b: 0 });
         }
         img
     }

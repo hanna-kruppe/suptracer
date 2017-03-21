@@ -1,3 +1,4 @@
+use super::{Config, timeit};
 use arrayvec::ArrayVec;
 use beebox::{self, Aabb};
 use beevage::{self, Axis};
@@ -5,7 +6,6 @@ use cast::{u32, usize};
 use geom::{Hit, Ray, Tri, TriSliceExt};
 use rayon::prelude::*;
 use std::u32;
-use super::{Config, timeit};
 use watertri;
 
 pub struct Bvh {
@@ -97,7 +97,7 @@ fn compactify(nodes: &mut Vec<CompactNode>, node: beevage::Node) -> NodeId {
                 offset: INVALID_ID,
                 payload: LEAF_OR_NODE_MASK | axis_id,
             });
-            let children = *children;  // Workaround for missing box pattern
+            let children = *children; // Workaround for missing box pattern
             let id_l = compactify(nodes, children.0);
             let id_r = compactify(nodes, children.1);
             assert_eq!(id_l.0, id.0 + 1);

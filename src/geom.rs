@@ -2,7 +2,6 @@ use beebox::Aabb;
 use beevage;
 use cast::u32;
 use cgmath::Vector3;
-use film::Color;
 use std::{f32, u32};
 use std::cell::Cell;
 use watertri;
@@ -12,7 +11,6 @@ pub struct Tri {
     pub a: Vector3<f32>,
     pub b: Vector3<f32>,
     pub c: Vector3<f32>,
-    pub color: Color,
 }
 
 impl Tri {
