@@ -1,5 +1,5 @@
 use bmp;
-use cast::{usize, u32};
+use cast::{usize, u32, u8};
 use rayon::prelude::*;
 use std::cmp;
 use std::f32;
@@ -83,7 +83,7 @@ impl ToBmp for Depthmap {
             } else {
                 let intensity = inv_lerp(depth, min_depth, max_depth);
                 debug_assert!(0.0 <= intensity && intensity <= 1.0);
-                let s = ((1.0 - intensity) * 255.0).round() as u8;
+                let s = u8(((1.0 - intensity) * 255.0).round()).unwrap();
                 bmp::Pixel { r: s, g: s, b: s }
             };
             img.set_pixel(x, y, color);
@@ -105,7 +105,7 @@ impl ToBmp for Heatmap {
             let clamped_heat = cmp::min(cmp::max(heat, pct05), pct95);
             let intensity = inv_lerp(clamped_heat, pct05, pct95);
             debug_assert!(0.0 <= intensity && intensity <= 1.0);
-            let s = (intensity * 255.0).round() as u8;
+            let s = u8((intensity * 255.0).round()).unwrap();
             img.set_pixel(x, y, bmp::Pixel { r: s, g: 0, b: 0 });
         }
         img

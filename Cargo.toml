@@ -6,7 +6,7 @@ version = "0.0.0"
 [dependencies]
 beebox = "0.1.1"
 bmp = "0.1.4"
-cast = "0.1.0"
+cast = "0.2.0"
 cgmath = "0.12.0"
 clap = "2.14.0"
 lazy_static = "0.2.1"

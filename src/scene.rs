@@ -1,5 +1,6 @@
 use super::{Config, timeit};
 use bvh::{self, Bvh};
+use cast::usize;
 use cgmath::{Vector3, vec3};
 use geom::{Hit, Ray, Tri, TriSliceExt};
 use obj;
@@ -64,7 +65,7 @@ fn read_obj(path: &Path, cfg: &Config) -> Mesh {
         let mut tris = Vec::with_capacity(o.indices.len() / 3);
         for chunk in o.indices.chunks(3) {
             assert!(chunk.len() == 3);
-            let (i, j, k) = (chunk[0] as usize, chunk[1] as usize, chunk[2] as usize);
+            let (i, j, k) = (usize(chunk[0]), usize(chunk[1]), usize(chunk[2]));
             tris.push(Tri {
                 a: Vector3::from(o.vertices[i].position),
                 b: Vector3::from(o.vertices[j].position),

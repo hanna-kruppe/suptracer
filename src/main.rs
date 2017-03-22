@@ -15,7 +15,7 @@ extern crate rayon;
 extern crate regex;
 extern crate watertri;
 
-use cast::{usize, u32};
+use cast::{usize, u32, f64};
 use cgmath::{InnerSpace, vec3};
 use film::{Frame, Depthmap, Heatmap};
 use geom::Ray;
@@ -99,7 +99,7 @@ fn main() {
            move || frame.to_bmp().save(&output_file).unwrap());
     let rays_tested = u32(scene.rays_tested.load(Ordering::SeqCst)).unwrap();
     let seconds = t.as_secs() as f64 + (t.subsec_nanos() as f64 / 1e9);
-    let mrays = rays_tested as f64 / 1e6;
+    let mrays = f64(rays_tested) / 1e6;
     println!("{:.2}M rays @ {:.3} Mray/s ({} per ray)",
              mrays,
              mrays / seconds,
@@ -108,14 +108,14 @@ fn main() {
 
 fn pretty_duration(d: Duration) -> String {
     if d.as_secs() > 0 {
-        let secs = d.as_secs() as f64 + d.subsec_nanos() as f64 * 1e-9;
+        let secs = d.as_secs() as f64 + f64(d.subsec_nanos()) * 1e-9;
         return format!("{:>6.2}s ", secs);
     }
     let ns = d.subsec_nanos();
     if ns > 1_000_000 {
-        return format!("{:>6.2}ms", ns as f64 / 1e6);
+        return format!("{:>6.2}ms", f64(ns) / 1e6);
     } else if ns > 1_000 {
-        return format!("{:>6.2}µs", ns as f64 / 1e3);
+        return format!("{:>6.2}µs", f64(ns) / 1e3);
     } else {
         return format!("{:>6}ns", ns);
     }
