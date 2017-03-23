@@ -1,4 +1,4 @@
-use super::{Config, timeit};
+use super::{Config, print_timing};
 use bvh::{self, Bvh};
 use cast::usize;
 use cgmath::{Vector3, vec3};
@@ -10,37 +10,31 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct Scene {
-    pub mesh: Mesh,
-    pub rays_tested: AtomicUsize,
+    pub tris: Vec<Tri>,
+    bvh: Bvh,
+    rays_tested: AtomicUsize,
 }
 
 impl Scene {
     pub fn new(cfg: &Config) -> Self {
+        let desc = format!("loading OBJ: {}", cfg.input_file.display());
+        let mut tris = print_timing(&desc, || read_obj(&cfg.input_file));
+        normalize(&mut tris);
+        let (bvh, tris) = bvh::construct(&tris, cfg);
         Scene {
-            mesh: read_obj(&cfg.input_file, cfg),
+            tris,
+            bvh,
             rays_tested: AtomicUsize::new(0),
         }
     }
 
     pub fn intersect(&self, r: &Ray) -> Hit {
         self.rays_tested.fetch_add(1, Ordering::SeqCst);
-        bvh::traverse(&self.mesh.tris, &self.mesh.accel, r)
+        bvh::traverse(&self.tris, &self.bvh, r)
     }
-}
 
-pub struct Mesh {
-    pub tris: Vec<Tri>,
-    accel: Bvh,
-}
-
-impl Mesh {
-    fn new(mut tris: Vec<Tri>, cfg: &Config) -> Self {
-        normalize(&mut tris);
-        let (bvh, tris) = bvh::construct(&tris, cfg);
-        Mesh {
-            tris: tris,
-            accel: bvh,
-        }
+    pub fn rays_tested(&self) -> usize {
+        self.rays_tested.load(Ordering::SeqCst)
     }
 }
 
@@ -57,22 +51,19 @@ fn normalize(tris: &mut [Tri]) {
     }
 }
 
-fn read_obj(path: &Path, cfg: &Config) -> Mesh {
-    let msg = format!("loading file: {}", path.display());
-    let (tris, _) = timeit(&msg, || {
-        let read = BufReader::new(File::open(path).unwrap());
-        let o = obj::load_obj::<obj::Position, _>(read).unwrap();
-        let mut tris = Vec::with_capacity(o.indices.len() / 3);
-        for chunk in o.indices.chunks(3) {
+fn read_obj(path: &Path) -> Vec<Tri> {
+    let read = BufReader::new(File::open(path).unwrap());
+    let o = obj::load_obj::<obj::Position, _>(read).unwrap();
+    o.indices
+        .chunks(3)
+        .map(|chunk| {
             assert!(chunk.len() == 3);
             let (i, j, k) = (usize(chunk[0]), usize(chunk[1]), usize(chunk[2]));
-            tris.push(Tri {
+            Tri {
                 a: Vector3::from(o.vertices[i].position),
                 b: Vector3::from(o.vertices[j].position),
                 c: Vector3::from(o.vertices[k].position),
-            });
-        }
-        tris
-    });
-    Mesh::new(tris, cfg)
+            }
+        })
+        .collect()
 }

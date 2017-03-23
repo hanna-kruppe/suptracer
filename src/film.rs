@@ -1,8 +1,7 @@
 use bmp;
 use cast::{usize, u32, u8};
 use rayon::prelude::*;
-use std::cmp;
-use std::f32;
+use std::{f32, u32};
 
 pub struct Frame<T> {
     width: u32,
@@ -13,8 +12,8 @@ pub struct Frame<T> {
 impl<T: Clone> Frame<T> {
     pub fn new(width: u32, height: u32, value: T) -> Self {
         Frame {
-            width: width,
-            height: height,
+            width,
+            height,
             buffer: vec![value; usize(width) * usize(height)],
         }
     }
@@ -43,6 +42,25 @@ impl<T: Sync + Send> Frame<T> {
             // TODO iterate differently to avoid the divmod
             .map(move |(i, px)| (u32(i).unwrap() / height, u32(i).unwrap() % height, px))
     }
+
+    fn to_bmp<F>(&self, f: F) -> bmp::Image
+        where F: Fn(&T) -> bmp::Pixel
+    {
+        let mut img = bmp::Image::new(self.width, self.height);
+        // FIXME .collect() shouldn't be necessary
+        for (x, y, px) in self.pixels().collect::<Vec<_>>() {
+            img.set_pixel(x, y, f(px));
+        }
+        img
+    }
+}
+
+impl<T: Copy> Frame<T> {
+    fn pixel_values<'a>(&'a self) -> impl Iterator<Item = T> + 'a
+        where T: Copy
+    {
+        self.buffer.iter().cloned()
+    }
 }
 
 /// Compute the linear interpolation coefficient for producing x from x0 and x1, i.e.,
@@ -50,7 +68,9 @@ impl<T: Sync + Send> Frame<T> {
 /// Panics if this is not possible, i.e., x is not between x0 and x1.
 fn inv_lerp<T: Copy + Into<f64> + PartialOrd>(x: T, x0: T, x1: T) -> f64 {
     assert!(x0 <= x && x <= x1);
-    (x.into() - x0.into()) / (x1.into() - x0.into())
+    let t = (x.into() - x0.into()) / (x1.into() - x0.into());
+    debug_assert!(0.0 <= t && t <= 1.0);
+    t
 }
 
 pub trait ToBmp {
@@ -62,52 +82,29 @@ pub struct Heatmap(pub Frame<u32>);
 
 impl ToBmp for Depthmap {
     fn to_bmp(&self) -> bmp::Image {
-        let Frame { ref buffer, width, height } = self.0;
-        let mut img = bmp::Image::new(width, height);
-        let min_depth = buffer.iter().cloned().fold(f32::INFINITY, f32::min);
-        assert!(min_depth != f32::INFINITY);
-        // inf is background, filter it out and give it a special color
-        let max_depth = buffer.iter()
-            .cloned()
-            .filter(|x| !x.is_infinite())
-            .fold(f32::NEG_INFINITY, f32::max);
-        assert!(max_depth != f32::INFINITY);
-        // FIXME .collect() shouldn't be necessary
-        for (x, y, &depth) in self.0.pixels().collect::<Vec<_>>() {
-            let color = if depth == f32::INFINITY {
-                bmp::Pixel {
-                    r: 0,
-                    g: 0,
-                    b: 255,
-                }
-            } else {
-                let intensity = inv_lerp(depth, min_depth, max_depth);
-                debug_assert!(0.0 <= intensity && intensity <= 1.0);
-                let s = u8(((1.0 - intensity) * 255.0).round()).unwrap();
-                bmp::Pixel { r: s, g: s, b: s }
-            };
-            img.set_pixel(x, y, color);
-        }
-        img
+        let frame = &self.0;
+        let min_depth = frame.pixel_values().fold(f32::INFINITY, f32::min);
+        let max_depth =
+            frame.pixel_values().filter(|&x| x != f32::INFINITY).fold(f32::NEG_INFINITY, f32::max);
+        frame.to_bmp(|&depth| if depth == f32::INFINITY {
+                         bmp::consts::BLUE
+                     } else {
+                         let intensity = inv_lerp(depth, min_depth, max_depth);
+                         let s = u8(((1.0 - intensity) * 255.0).round()).unwrap();
+                         bmp::Pixel { r: s, g: s, b: s }
+                     })
     }
 }
 
 impl ToBmp for Heatmap {
     fn to_bmp(&self) -> bmp::Image {
-        let Frame { ref buffer, width, height } = self.0;
-        let mut sorted = buffer.clone();
-        sorted.sort();
-        let pct05 = sorted[sorted.len() * 5 / 100];
-        let pct95 = sorted[sorted.len() * 95 / 100];
-        let mut img = bmp::Image::new(width, height);
-        // FIXME .collect() shouldn't be necessary
-        for (x, y, &heat) in self.0.pixels().collect::<Vec<_>>() {
-            let clamped_heat = cmp::min(cmp::max(heat, pct05), pct95);
-            let intensity = inv_lerp(clamped_heat, pct05, pct95);
-            debug_assert!(0.0 <= intensity && intensity <= 1.0);
-            let s = u8((intensity * 255.0).round()).unwrap();
-            img.set_pixel(x, y, bmp::Pixel { r: s, g: 0, b: 0 });
-        }
-        img
+        let frame = &self.0;
+        let min_heat = frame.pixel_values().min().unwrap();
+        let max_heat = frame.pixel_values().max().unwrap();
+        frame.to_bmp(|&heat| {
+                         let intensity = inv_lerp(heat, min_heat, max_heat);
+                         let s = u8((intensity * 255.0).round()).unwrap();
+                         bmp::Pixel { r: s, g: 0, b: 0 }
+                     })
     }
 }

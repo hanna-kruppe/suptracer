@@ -1,4 +1,4 @@
-use super::{Config, timeit};
+use super::{Config, print_timing};
 use arrayvec::ArrayVec;
 use beebox::{self, Aabb};
 use beevage::{self, Axis};
@@ -81,10 +81,10 @@ fn compactify(nodes: &mut Vec<CompactNode>, node: beevage::Node) -> NodeId {
             let payload = u32(primitive_range.len()).unwrap();
             assert!(payload & LEAF_OR_NODE_MASK == 0);
             nodes.push(CompactNode {
-                bb: bb,
-                offset: u32(primitive_range.start).unwrap(),
-                payload: payload,
-            });
+                           bb: bb,
+                           offset: u32(primitive_range.start).unwrap(),
+                           payload: payload,
+                       });
         }
         beevage::Node::Inner { bb, children, axis } => {
             let axis_id = match axis {
@@ -93,10 +93,10 @@ fn compactify(nodes: &mut Vec<CompactNode>, node: beevage::Node) -> NodeId {
                 Axis::Z => 2,
             };
             nodes.push(CompactNode {
-                bb: bb,
-                offset: INVALID_ID,
-                payload: LEAF_OR_NODE_MASK | axis_id,
-            });
+                           bb: bb,
+                           offset: INVALID_ID,
+                           payload: LEAF_OR_NODE_MASK | axis_id,
+                       });
             let children = *children; // Workaround for missing box pattern
             let id_l = compactify(nodes, children.0);
             let id_r = compactify(nodes, children.1);
@@ -111,7 +111,7 @@ const MAX_DEPTH: usize = 64;
 
 pub fn construct(tris: &[Tri], cfg: &Config) -> (Bvh, Vec<Tri>) {
     let msg = format!("building BVH for {} tris", tris.len());
-    let (res, _) = timeit(&msg, move || {
+    print_timing(&msg, move || {
         let bb = tris.bbox();
         let config = beevage::Config {
             bucket_count: usize(cfg.sah_buckets),
@@ -119,11 +119,9 @@ pub fn construct(tris: &[Tri], cfg: &Config) -> (Bvh, Vec<Tri>) {
             max_depth: MAX_DEPTH,
         };
         let beevage::Bvh { root, node_count, primitives } = beevage::binned_sah(config, tris, bb);
-        let mut bvh_tris = Vec::with_capacity(tris.len());
-        primitives.into_par_iter().map(|p| tris[p.index()].clone()).collect_into(&mut bvh_tris);
+        let bvh_tris = primitives.into_par_iter().map(|p| tris[p.index()].clone()).collect();
         (Bvh::compactify(root, node_count), bvh_tris)
-    });
-    res
+    })
 }
 
 
