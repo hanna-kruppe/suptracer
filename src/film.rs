@@ -1,7 +1,9 @@
 use bmp;
 use cast::{usize, u32, u8};
+use itertools::{Itertools, MinMaxResult};
+use ordered_float::NotNaN;
 use rayon::prelude::*;
-use std::{f32, u32};
+use std::f32;
 
 pub struct Frame<T> {
     width: u32,
@@ -83,9 +85,12 @@ pub struct Heatmap(pub Frame<u32>);
 impl ToBmp for Depthmap {
     fn to_bmp(&self) -> bmp::Image {
         let frame = &self.0;
-        let min_depth = frame.pixel_values().fold(f32::INFINITY, f32::min);
-        let max_depth =
-            frame.pixel_values().filter(|&x| x != f32::INFINITY).fold(f32::NEG_INFINITY, f32::max);
+        let (min_depth, max_depth) = match frame.pixel_values()
+                  .filter(|&x| x != f32::INFINITY)
+                  .minmax_by_key(|&x| NotNaN::new(x).unwrap()) {
+            MinMaxResult::MinMax(min, max) => (min, max),
+            _ => panic!("frame empty or not a single pixel"),
+        };
         frame.to_bmp(|&depth| if depth == f32::INFINITY {
                          bmp::consts::BLUE
                      } else {
@@ -99,8 +104,10 @@ impl ToBmp for Depthmap {
 impl ToBmp for Heatmap {
     fn to_bmp(&self) -> bmp::Image {
         let frame = &self.0;
-        let min_heat = frame.pixel_values().min().unwrap();
-        let max_heat = frame.pixel_values().max().unwrap();
+        let (min_heat, max_heat) = match frame.pixel_values().minmax() {
+            MinMaxResult::MinMax(min, max) => (min, max),
+            _ => panic!("frame empty or a single pixel"),
+        };
         frame.to_bmp(|&heat| {
                          let intensity = inv_lerp(heat, min_heat, max_heat);
                          let s = u8((intensity * 255.0).round()).unwrap();

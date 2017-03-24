@@ -12,7 +12,9 @@ extern crate clap;
 extern crate cast;
 #[macro_use]
 extern crate lazy_static;
+extern crate itertools;
 extern crate obj;
+extern crate ordered_float;
 extern crate rayon;
 extern crate regex;
 extern crate watertri;
