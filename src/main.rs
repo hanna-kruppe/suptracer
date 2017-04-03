@@ -1,6 +1,4 @@
 #![feature(conservative_impl_trait)]
-// TODO update my rustc
-#![feature(field_init_shorthand)]
 
 extern crate arrayvec;
 extern crate beebox;
@@ -10,6 +8,7 @@ extern crate cgmath;
 #[macro_use]
 extern crate clap;
 extern crate cast;
+extern crate elapsed;
 #[macro_use]
 extern crate lazy_static;
 extern crate itertools;
@@ -28,7 +27,6 @@ use scene::Scene;
 use std::f32;
 use std::path::PathBuf;
 use std::time::Duration;
-use std::time::Instant;
 
 mod bvh;
 mod cli;
@@ -106,34 +104,19 @@ fn main() {
     let rays_tested = scene.rays_tested();
     let seconds = f64(t.as_secs()) + f64(t.subsec_nanos()) / 1e9;
     let mrays = f64(rays_tested) / 1e6;
-    println!("{:.2}M rays @ {:.3} Mray/s ({} per ray)",
+    let time_per_ray = t / u32(rays_tested).unwrap();
+    println!("{:.2}M rays @ {:.3} Mray/s ({:} per ray)",
              mrays,
              mrays / seconds,
-             pretty_duration(t / u32(rays_tested).unwrap()));
-}
-
-fn pretty_duration(d: Duration) -> String {
-    let ns = d.subsec_nanos();
-    if d.as_secs() > 0 {
-        let secs = f64(d.as_secs()) + f64(d.subsec_nanos()) * 1e-9;
-        format!("{:>6.2}s ", secs)
-    } else if ns > 1_000_000 {
-        format!("{:>6.2}ms", f64(ns) / 1e6)
-    } else if ns > 1_000 {
-        format!("{:>6.2}µs", f64(ns) / 1e3)
-    } else {
-        format!("{:>6}ns", ns)
-    }
+             elapsed::ElapsedDuration::new(time_per_ray));
 }
 
 fn measure_and_print_time<T, F>(description: &str, f: F) -> (T, Duration)
     where F: FnOnce() -> T
 {
-    let t0 = Instant::now();
-    let result = f();
-    let t = Instant::now() - t0;
-    println!("[{}] {}", pretty_duration(t), description);
-    (result, t)
+    let (t, result) = elapsed::measure_time(f);
+    println!("[{:^10}] {}", t, description);
+    (result, t.duration())
 }
 
 fn print_timing<T, F>(description: &str, f: F) -> T
