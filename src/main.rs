@@ -88,7 +88,7 @@ fn render_heatmap(scene: &Scene, cfg: &Config) -> Box<film::ToBmp> {
 fn main() {
     let cfg = cli::parse_matches(cli::build_app().get_matches());
     if let Some(num_threads) = cfg.num_threads {
-        let rayon_cfg = rayon::Configuration::new().set_num_threads(usize(num_threads));
+        let rayon_cfg = rayon::Configuration::new().num_threads(usize(num_threads));
         rayon::initialize(rayon_cfg).unwrap();
     }
 
