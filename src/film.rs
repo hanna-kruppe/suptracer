@@ -3,7 +3,7 @@ use cast::{usize, u32, u8};
 use itertools::{Itertools, MinMaxResult};
 use ordered_float::NotNaN;
 use rayon::prelude::*;
-use std::f32;
+use std::{f32, iter, slice};
 
 pub struct Frame<T> {
     width: u32,
@@ -11,7 +11,7 @@ pub struct Frame<T> {
     buffer: Vec<T>,
 }
 
-impl<T: Clone> Frame<T> {
+impl<T: Sync + Send + Copy> Frame<T> {
     pub fn new(width: u32, height: u32, value: T) -> Self {
         Frame {
             width,
@@ -19,49 +19,47 @@ impl<T: Clone> Frame<T> {
             buffer: vec![value; usize(width) * usize(height)],
         }
     }
-}
 
-// False positive in a clippy lint, see Manishearth/rust-clippy#740
-// TODO fix https://github.com/Manishearth/rust-clippy/issues/1133 so this can be a cfg_attr
-#[allow(unknown_lints, needless_lifetimes)]
-impl<T: Sync + Send> Frame<T> {
-    pub fn pixels<'a>(&'a self) -> impl IndexedParallelIterator<Item = (u32, u32, &'a T)> {
-        // TODO why is this height and not width?
-        let height = self.height;
-        self.buffer[..]
-            .par_iter()
-            .enumerate()
+    pub fn for_each_pixel<F>(&self, mut f: F)
+        where F: FnMut(u32, u32, T)
+    {
+        for (i, px) in self.pixel_values().enumerate() {
+            // TODO why height and not width?
             // TODO iterate differently to avoid the divmod
-            .map(move |(i, px)| (u32(i).unwrap() / height, u32(i).unwrap() % height, px))
+            let x = u32(i).unwrap() / self.height;
+            let y = u32(i).unwrap() % self.height;
+            f(x, y, px)
+        }
     }
 
-    pub fn pixels_mut<'a>(&'a mut self)
-                          -> impl IndexedParallelIterator<Item = (u32, u32, &'a mut T)> {
+    pub fn set_pixels<F>(&mut self, f: F)
+        where F: Send + Sync + Fn(u32, u32) -> T
+    {
+        // TODO why height and not width?
         let height = self.height;
         self.buffer[..]
             .par_iter_mut()
             .enumerate()
             // TODO iterate differently to avoid the divmod
-            .map(move |(i, px)| (u32(i).unwrap() / height, u32(i).unwrap() % height, px))
+            .for_each(move |(i, px)| {
+                let x = u32(i).unwrap() / height;
+                let y = u32(i).unwrap() % height;
+                *px = f(x, y);
+            });
     }
 
-    fn to_bmp<F>(&self, f: F) -> bmp::Image
-        where F: Fn(&T) -> bmp::Pixel
-    {
-        let mut img = bmp::Image::new(self.width, self.height);
-        // FIXME .collect() shouldn't be necessary
-        for (x, y, px) in self.pixels().collect::<Vec<_>>() {
-            img.set_pixel(x, y, f(px));
-        }
-        img
-    }
-}
-
-impl<T: Copy> Frame<T> {
-    fn pixel_values<'a>(&'a self) -> impl Iterator<Item = T> + 'a
+    fn pixel_values(&self) -> iter::Cloned<slice::Iter<T>>
         where T: Copy
     {
         self.buffer.iter().cloned()
+    }
+
+    fn to_bmp<F>(&self, f: F) -> bmp::Image
+        where F: Fn(T) -> bmp::Pixel
+    {
+        let mut img = bmp::Image::new(self.width, self.height);
+        self.for_each_pixel(|x, y, px| { img.set_pixel(x, y, f(px)); });
+        img
     }
 }
 
@@ -91,7 +89,7 @@ impl ToBmp for Depthmap {
             MinMaxResult::MinMax(min, max) => (min, max),
             _ => panic!("frame empty or not a single pixel"),
         };
-        frame.to_bmp(|&depth| if depth == f32::INFINITY {
+        frame.to_bmp(|depth| if depth == f32::INFINITY {
                          bmp::consts::BLUE
                      } else {
                          let intensity = inv_lerp(depth, min_depth, max_depth);
@@ -108,7 +106,7 @@ impl ToBmp for Heatmap {
             MinMaxResult::MinMax(min, max) => (min, max),
             _ => panic!("frame empty or a single pixel"),
         };
-        frame.to_bmp(|&heat| {
+        frame.to_bmp(|heat| {
                          let intensity = inv_lerp(heat, min_heat, max_heat);
                          let s = u8((intensity * 255.0).round()).unwrap();
                          bmp::Pixel { r: s, g: 0, b: 0 }

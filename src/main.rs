@@ -1,5 +1,3 @@
-#![feature(conservative_impl_trait)]
-
 extern crate arrayvec;
 extern crate beebox;
 extern crate beevage;
@@ -22,7 +20,6 @@ use cast::{usize, u32, f32, f64};
 use cgmath::{InnerSpace, vec3};
 use film::{Frame, Depthmap, Heatmap};
 use geom::{Hit, Ray};
-use rayon::prelude::*;
 use scene::Scene;
 use std::f32;
 use std::path::PathBuf;
@@ -61,27 +58,28 @@ fn primary_ray(x: u32, y: u32, cfg: &Config) -> Ray {
 }
 
 fn render<T, F>(scene: &Scene, cfg: &Config, background: T, shader: F) -> film::Frame<T>
-    where F: Fn(&mut T, Hit, Ray) + Sync,
-          T: Clone + Send + Sync
+    where F: Sync + Fn(Hit, Ray) -> T,
+          T: Copy + Send + Sync
 {
     let mut frame = Frame::new(cfg.image_width, cfg.image_height, background);
-    frame.pixels_mut().for_each(|(x, y, px)| {
-                                    let r = primary_ray(x, y, cfg);
-                                    let hit = scene.intersect(&r);
-                                    shader(px, hit, r);
-                                });
+    frame.set_pixels(|x, y| {
+                         let r = primary_ray(x, y, cfg);
+                         let hit = scene.intersect(&r);
+                         shader(hit, r)
+                     });
     frame
 }
 
 fn render_depthmap(scene: &Scene, cfg: &Config) -> Box<film::ToBmp> {
-    let frame = render(scene, cfg, f32::INFINITY, |px, hit, _| if hit.is_valid() {
-        *px = hit.t;
-    });
+    let frame = render(scene,
+                       cfg,
+                       f32::INFINITY,
+                       |hit, _| if hit.is_valid() { hit.t } else { f32::INFINITY });
     Box::new(Depthmap(frame))
 }
 
 fn render_heatmap(scene: &Scene, cfg: &Config) -> Box<film::ToBmp> {
-    let frame = render(scene, cfg, 0, |px, _, r| { *px = r.traversal_steps.get(); });
+    let frame = render(scene, cfg, 0, |_, r| r.traversal_steps.get());
     Box::new(Heatmap(frame))
 }
 
